@@ -65,6 +65,11 @@ func TestParse(t *testing.T) {
 			str:     "",
 			wantErr: true,
 		},
+		{
+			name:    "Big",
+			str:     "v9999999999999999999999.99999999999999999999999999.9999999999999999999999",
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {

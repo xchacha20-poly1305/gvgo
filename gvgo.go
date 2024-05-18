@@ -102,12 +102,14 @@ func (v Version) String() string {
 	return s
 }
 
+// Compare compares two string. It not care about if they are valid.
 func Compare(a, b string) int {
 	av, _ := Parse(a)
 	bv, _ := Parse(b)
 	return CompareVersion(av, bv)
 }
 
+// CompareVersion compares two Version.
 func CompareVersion(a, b Version) int {
 	if c := compareInt(a.Major, b.Major); c != 0 {
 		return c
@@ -131,6 +133,7 @@ func (v Version) Compare(y Version) int {
 	return CompareVersion(v, y)
 }
 
+// IsValid checks if a string is a valid Version.
 func IsValid(v string) bool {
 	_, err := Parse(v)
 	return err == nil
