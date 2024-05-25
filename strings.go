@@ -72,3 +72,15 @@ func compareKind(x, y string) int {
 	// timestamp
 	return compareInt(x, y)
 }
+
+// cutInt scans the leading decimal number at the start of x to an integer.
+func cutInt(x string) (n string, ok bool) {
+	i := 0
+	for i < len(x) && '0' <= x[i] && x[i] <= '9' {
+		i++
+	}
+	if i == 0 || x[0] == '0' && i != 1 { // no digits or unnecessary leading zero
+		return "", false
+	}
+	return x[:i], true
+}

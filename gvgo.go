@@ -2,7 +2,6 @@
 package gvgo
 
 import (
-	"errors"
 	"strconv"
 	"strings"
 )
@@ -13,7 +12,7 @@ import (
 // The numbers are the original decimal strings to avoid integer overflows
 // and since there is very little actual math. (Probably overflow doesn't matter in practice,
 // but at the time this code was written, there was an existing test that used
-// go1.99999999999, which does not fit in an int on 32-bit platforms.
+// 1.99999999999, which does not fit in an int on 32-bit platforms.
 // The "big decimal" representation avoids the problem entirely.)
 type Version struct {
 	Major string // decimal
@@ -24,27 +23,40 @@ type Version struct {
 }
 
 // Parse parses the version string. Whether starts with "v" or not are both OK.
-func Parse(x string) (Version, error) {
-	var v Version
-
+func Parse(x string) (v Version, err error) {
 	x = strings.TrimPrefix(x, "v")
 	parts := strings.Split(x, "-")
 
 	// "0.0.0"
 	mainParts := strings.Split(parts[0], ".")
 	for i, mainPart := range mainParts {
+		var partValid bool
 		switch i {
 		case 0:
 			if mainPart == "" {
-				return v, errors.New("main part empty")
+				err = ErrMissMain
+				return
 			}
-			v.Major = mainPart
+			v.Major, partValid = cutInt(mainPart)
+			if !partValid {
+				err = versionError{"v.Major invalid"}
+				return
+			}
 		case 1:
-			v.Minor = mainPart
+			v.Minor, partValid = cutInt(mainPart)
+			if !partValid {
+				err = versionError{"v.Minor invalid"}
+				return
+			}
 		case 2:
-			v.Patch = mainPart
+			v.Patch, partValid = cutInt(mainPart)
+			if !partValid {
+				err = versionError{"v.Patch invalid"}
+				return
+			}
 		default:
-			return v, errors.New("main part too long")
+			err = ErrMainLong
+			return
 		}
 	}
 

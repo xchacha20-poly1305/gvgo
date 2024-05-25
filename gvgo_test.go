@@ -70,13 +70,20 @@ func TestParse(t *testing.T) {
 			str:     "v9999999999999999999999.99999999999999999999999999.9999999999999999999999",
 			wantErr: false,
 		},
+		{
+			name:    "Not number",
+			str:     "number.miss",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
 		v, err := Parse(tt.str)
 		if tt.wantErr {
 			if err == nil {
-				t.Errorf("%s wants error but got: %s", tt.name, v.String())
+				t.Errorf("[%s] wants error but got: %s", tt.name, v.String())
+			} else {
+				t.Logf("[%s] wants error and passed", tt.name)
 			}
 			continue
 		}
