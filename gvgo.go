@@ -2,7 +2,6 @@
 package gvgo
 
 import (
-	"cmp"
 	"errors"
 	"strconv"
 	"strings"
@@ -120,7 +119,7 @@ func CompareVersion(a, b Version) int {
 	if c := compareInt(a.Patch, b.Patch); c != 0 {
 		return c
 	}
-	if c := cmp.Compare(a.Kind, b.Kind); c != 0 {
+	if c := compareKind(a.Kind, b.Kind); c != 0 {
 		return c
 	}
 	if c := compareInt(a.Pre, b.Pre); c != 0 {
