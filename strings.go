@@ -46,12 +46,17 @@ const (
 	KindRC    = "rc"
 )
 
+// IsValidKind returns true if kind is one of kinds("alpha", "beta" and "rc").
+func IsValidKind(kind string) bool {
+	return kind == KindAlpha || kind == KindBeta || kind == KindRC
+}
+
 func compareKind(x, y string) int {
 	x = strings.ToLower(x)
 	y = strings.ToLower(y)
 
-	xIsValidKind := x == KindAlpha || x == KindBeta || x == KindRC
-	yIsValidKind := y == KindAlpha || y == KindBeta || y == KindRC
+	xIsValidKind := IsValidKind(x)
+	yIsValidKind := IsValidKind(y)
 
 	if xIsValidKind && yIsValidKind {
 		// "" < alpha < beta < rc
