@@ -9,11 +9,12 @@ import (
 	"strings"
 )
 
-// A Version is a parsed Go version: major[.Minor[.Patch]][kind[pre]][.BuildMetadata.Timestamp-Commit]
+// A Version is a parsed Go pseudo version:
+// major[.Minor[.Patch]][kind[pre]][.BuildMetadata.Timestamp-Commit]
 // The numbers are the original decimal strings to avoid integer overflows
 // and since there is very little actual math. (Probably overflow doesn't matter in practice,
 // but at the time this code was written, there was an existing test that used
-// go1.99999999999, which does not fit in an int on 32-bit platforms.
+// 1.99999999999, which does not fit in an int on 32-bit platforms.
 // The "big decimal" representation avoids the problem entirely.)
 type Version struct {
 	Major string // decimal
@@ -82,6 +83,10 @@ func Parse(raw string) (v Version, err error) {
 		return
 	default:
 		return Version{}, ErrInvalidKind
+	}
+	afterKind = strings.TrimPrefix(afterKind, ".")
+	if afterKind == "" {
+		return
 	}
 	v.BuildMetadata, v.GitInfo, err = parsePseudo(afterKind)
 	if err != nil {

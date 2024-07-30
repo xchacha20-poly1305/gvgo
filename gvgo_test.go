@@ -1,8 +1,130 @@
 package gvgo
 
 import (
+	"reflect"
 	"testing"
 )
+
+func TestNew(t *testing.T) {
+	want := Version{
+		Major: "0",
+		Minor: "0",
+		Patch: "0",
+	}
+	if got := New(); !reflect.DeepEqual(got, want) {
+		t.Errorf("New() = %v, want %v", got, want)
+	}
+}
+
+func TestParse(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		wantV   Version
+		wantErr bool
+	}{
+		{
+			name: "normal",
+			raw:  "v1.2.3",
+			wantV: Version{
+				Major: "1",
+				Minor: "2",
+				Patch: "3",
+			},
+			wantErr: false,
+		},
+		{
+			name: "not has v",
+			raw:  "1.0.0",
+			wantV: Version{
+				Major: "1",
+				Minor: "0",
+				Patch: "0",
+			},
+			wantErr: false,
+		},
+		{
+			name:    "empty",
+			raw:     "",
+			wantErr: true,
+		},
+		{
+			name:    "invalid",
+			raw:     "gvgo!",
+			wantErr: true,
+		},
+		{
+			name: "pre",
+			raw:  "v1.23.0-rc.2",
+			wantV: Version{
+				Major: "1",
+				Minor: "23",
+				Patch: "0",
+				Kind:  KindRc,
+				Pre:   "2",
+			},
+			wantErr: false,
+		},
+		{
+			name: "pre just kind",
+			raw:  "0.8.2-rc",
+			wantV: Version{
+				Major: "0",
+				Minor: "8",
+				Patch: "2",
+				Kind:  KindRc,
+			},
+			wantErr: false,
+		},
+		{
+			name: "git",
+			raw:  "v0.6.2-0.20240717063648-d3b0c53281a1",
+			wantV: Version{
+				Major:   "0",
+				Minor:   "6",
+				Patch:   "2",
+				GitInfo: "20240717063648-d3b0c53281a1",
+			},
+			wantErr: false,
+		},
+		{
+			name: "pre + git",
+			raw:  "v1.10.0-alpha.26.0.20240727034746-0efc42a5ef8d",
+			wantV: Version{
+				Major:         "1",
+				Minor:         "10",
+				Patch:         "0",
+				Kind:          KindAlpha,
+				Pre:           "26",
+				BuildMetadata: "0",
+				GitInfo:       "20240727034746-0efc42a5ef8d",
+			},
+			wantErr: false,
+		},
+		{
+			name: "too big",
+			raw:  "1.99999999999",
+			wantV: Version{
+				Major: "1",
+				Minor: "99999999999",
+				Patch: "0",
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotV, err := Parse(tt.raw)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Parse() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && !reflect.DeepEqual(gotV, tt.wantV) {
+				t.Errorf("Parse() gotV = %v, want %v", gotV, tt.wantV)
+			}
+		})
+	}
+}
 
 func TestValidKind(t *testing.T) {
 	tests := []struct {
