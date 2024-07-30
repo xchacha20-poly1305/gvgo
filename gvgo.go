@@ -113,6 +113,11 @@ func (v Version) String() string {
 	return s
 }
 
+// KindValid checks whether kind is valid.
+func (v Version) KindValid() bool {
+	return v.Kind == "" || IsValidKind(v.Kind)
+}
+
 // Compare compares two string. It not care about if they are valid.
 func Compare(a, b string) int {
 	av, _ := Parse(a)
