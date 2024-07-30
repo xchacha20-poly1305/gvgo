@@ -1,14 +1,16 @@
-// Package gvgo used to parse version info.
+// Package gvgo implements version compare for Go module version.
+//
+// Rules detail: https://go.dev/doc/modules/version-numbers
+//
+// https://go.dev/ref/mod#pseudo-versions
 package gvgo
 
 import (
-	"strconv"
 	"strings"
 )
 
-// Something from: https://github.com/golang/go/blob/go1.22.3/src/internal/gover/gover.go
-
-// A Version is a parsed version: major[.Minor[.Patch]][-kind[(.)pre]]
+// A Version is a parsed Go pseudo version:
+// major[.Minor[.Patch]][kind[pre]][.BuildMetadata.Timestamp-Commit]
 // The numbers are the original decimal strings to avoid integer overflows
 // and since there is very little actual math. (Probably overflow doesn't matter in practice,
 // but at the time this code was written, there was an existing test that used
@@ -16,141 +18,209 @@ import (
 // The "big decimal" representation avoids the problem entirely.)
 type Version struct {
 	Major string // decimal
-	Minor string // decimal or ""
-	Patch string // decimal or ""
+	Minor string // decimal
+	Patch string // decimal
 	Kind  string // "", "alpha", "beta", "rc"
 	Pre   string // decimal or ""
+
+	// For pseudo-version. We assume has Commit means use pseudo-version.
+	BuildMetadata string // decimal or ""
+	GitInfo       string // timestamp-commit_hash
 }
 
-// Parse parses the version string. Whether starts with "v" or not are both OK.
-func Parse(x string) (v Version, err error) {
-	x = strings.TrimPrefix(x, "v")
-	parts := strings.Split(x, "-")
-
-	// "0.0.0"
-	mainParts := strings.Split(parts[0], ".")
-	for i, mainPart := range mainParts {
-		var partValid bool
-		switch i {
-		case 0:
-			if mainPart == "" {
-				err = ErrMissMain
-				return
-			}
-			v.Major, partValid = cutInt(mainPart)
-			if !partValid {
-				err = versionError{"v.Major invalid"}
-				return
-			}
-		case 1:
-			v.Minor, partValid = cutInt(mainPart)
-			if !partValid {
-				err = versionError{"v.Minor invalid"}
-				return
-			}
-		case 2:
-			v.Patch, partValid = cutInt(mainPart)
-			if !partValid {
-				err = versionError{"v.Patch invalid"}
-				return
-			}
-		default:
-			err = ErrMainLong
-			return
-		}
+func New() Version {
+	return Version{
+		Major: "0",
+		Minor: "0",
+		Patch: "0",
 	}
-
-	if len(parts) == 3 {
-		// "0.0.0-[timestamp]-[sha1]"
-		v.Kind = parts[1]
-		v.Pre = parts[2]
-	} else {
-		// "rc0" or "rc.0"
-		extra := after(x, parts[0]+"-")
-		extraIndex := strings.IndexFunc(extra, func(r rune) bool {
-			s := string(r)
-			if _, err := strconv.Atoi(s); err == nil {
-				return true
-			}
-			return s == "."
-		})
-		if extraIndex >= 0 {
-			if extraSlices := strings.Split(extra, ""); extraSlices[extraIndex] == "." {
-				v.Kind = before(extra, ".")
-				v.Pre = after(extra, ".")
-			} else {
-				v.Kind = strings.Join(extraSlices[:extraIndex], "")
-				v.Pre = strings.Join(extraSlices[extraIndex:], "")
-			}
-		}
-	}
-
-	return v, nil
 }
 
-// String print readable version. But it will not include "v" at first.
-func (v Version) String() string {
-	s := v.Major
-	if v.Minor != "" {
-		s += "." + v.Minor
-		if v.Patch != "" {
-			s += "." + v.Patch
+// Parse parses version.
+func Parse(raw string) (v Version, err error) {
+	raw = strings.TrimPrefix(raw, "v")
 
-		} else {
-			s += ".0"
-		}
-	} else {
-		s += ".0.0"
+	var mainPart [2]string
+	mainPart[0], mainPart[1], _ = strings.Cut(raw, "-")
+	v.Major, v.Minor, v.Patch, err = parseMainPart(mainPart[0])
+	if err != nil {
+		return Version{}, err
+	}
+	if mainPart[1] == "" {
+		// Not pre-release or pseudo.
+		return
 	}
 
-	if v.Kind != "" {
-		s += "-" + v.Kind
+	var afterKind string
+	switch mainPart[1][0] {
+	case KindAlpha[0]:
+		var found bool
+		afterKind, found = strings.CutPrefix(mainPart[1], KindAlpha)
+		if !found {
+			return Version{}, ErrInvalidKind
+		}
+		v.Kind = KindAlpha
+	case KindBeta[0]:
+		var found bool
+		afterKind, found = strings.CutPrefix(mainPart[1], KindBeta)
+		if !found {
+			return Version{}, ErrInvalidKind
+		}
+		v.Kind = KindBeta
+	case KindRc[0]:
+		var found bool
+		afterKind, found = strings.CutPrefix(mainPart[1], KindRc)
+		if !found {
+			return Version{}, ErrInvalidKind
+		}
+		v.Kind = KindRc
+	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		// Not pre-release
+		v.BuildMetadata, v.GitInfo, err = parsePseudo(mainPart[1])
+		if err != nil {
+			return Version{}, err
+		}
+		return
+	default:
+		return Version{}, ErrInvalidKind
+	}
+	afterKind = strings.TrimPrefix(afterKind, ".")
+	if afterKind == "" {
+		return
+	}
+	v.BuildMetadata, v.GitInfo, err = parsePseudo(afterKind)
+	if err != nil {
+		return Version{}, err
+	}
+	return
+}
+
+// parseMainPart parses the main part of version like 1.0.0.
+func parseMainPart(raw string) (major, minor, patch string, err error) {
+	var success bool
+	major, raw, success = cutInt(raw)
+	if !success {
+		return "", "", "", Error{"read major version"}
+	}
+	minor, raw, success = cutInt(strings.TrimPrefix(raw, "."))
+	if !success {
+		return major, "0", "0", nil
+	}
+	patch, raw, success = cutInt(strings.TrimPrefix(raw, "."))
+	if !success {
+		patch = "0"
+	}
+	return
+}
+
+// parsePseudo parse pseudo parts like "0.20240717063648-d3b0c53281a1" or "20240719175910-8a7402abbf56"
+func parsePseudo(raw string) (buildMetadata, gitInfo string, err error) {
+	num, rest, success := cutInt(raw)
+	if !success {
+		return "", "", ErrInvalidGit
+	}
+	if strings.HasPrefix(rest, "-") {
+		// Pure git
+		// "20240719175910-8a7402abbf56"
+		return "", raw, nil
+	}
+	// "0.20240717063648-d3b0c53281a1"
+	return num, strings.TrimPrefix(rest, "."), nil
+}
+
+// Pre-release kind.
+const (
+	KindAlpha = "alpha"
+	KindBeta  = "beta"
+	KindRc    = "rc"
+)
+
+// ValidKind returns true when kind is valid.
+func ValidKind(kind string) bool {
+	return kind == KindAlpha || kind == KindBeta || kind == KindRc
+}
+
+// CompareKind compares the pre-release kind. If they are not invalid, will return 0.
+// Empty means not pre version, so it is always bigger than any kind.
+func CompareKind(x, y string) int {
+	if x == y {
+		return 0
+	}
+	switch x {
+	case KindAlpha:
+		return -1
+	case KindBeta:
+		switch y {
+		case KindAlpha:
+			return 1
+		case KindRc, "":
+			return -1
+		}
+		// invalid
+		fallthrough
+	case KindRc, "":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// String returns the readable string of version.
+// It not starts with "v".
+func (v Version) String() (version string) {
+	version = v.Major + "." + v.Minor + "." + v.Patch
+	isPre := v.Kind != ""
+	hasGit := v.GitInfo != ""
+	if !isPre && !hasGit {
+		return
+	}
+
+	version += "-"
+	if isPre {
+		version += v.Kind
 		if v.Pre != "" {
-			s += "." + v.Pre
+			version += "." + v.Pre
 		}
 	}
-
-	return s
+	if hasGit {
+		if v.BuildMetadata != "" {
+			if !strings.HasSuffix(version, "-") {
+				version += "."
+			}
+			version += v.BuildMetadata
+		}
+		if !strings.HasSuffix(version, "-") {
+			version += "."
+		}
+		version += v.GitInfo
+	}
+	return
 }
 
-// KindValid checks whether kind is valid.
-func (v Version) KindValid() bool {
-	return v.Kind == "" || IsValidKind(v.Kind)
-}
-
-// Compare compares two string. It not care about if they are valid.
-func Compare(a, b string) int {
-	av, _ := Parse(a)
-	bv, _ := Parse(b)
-	return CompareVersion(av, bv)
-}
-
-// CompareVersion compares two Version.
-func CompareVersion(a, b Version) int {
-	if c := compareInt(a.Major, b.Major); c != 0 {
+// Compare compares two version.
+func Compare(x, y Version) int {
+	if c := cmpInt(x.Major, y.Major); c != 0 {
 		return c
 	}
-	if c := compareInt(a.Minor, b.Minor); c != 0 {
+	if c := cmpInt(x.Minor, y.Minor); c != 0 {
 		return c
 	}
-	if c := compareInt(a.Patch, b.Patch); c != 0 {
+	if c := cmpInt(x.Patch, y.Patch); c != 0 {
 		return c
 	}
-	if c := compareKind(a.Kind, b.Kind); c != 0 {
+	if c := CompareKind(x.Kind, y.Kind); c != 0 {
 		return c
 	}
-	if c := compareInt(a.Pre, b.Pre); c != 0 {
+	if c := cmpInt(x.Pre, y.Pre); c != 0 {
+		return c
+	}
+	if c := cmpInt(x.BuildMetadata, y.BuildMetadata); c != 0 {
+		return c
+	}
+	xTimestamp, _, _ := strings.Cut(x.GitInfo, "-")
+	yTimestamp, _, _ := strings.Cut(y.GitInfo, "-")
+	if c := cmpInt(xTimestamp, yTimestamp); c != 0 {
 		return c
 	}
 	return 0
-}
-
-func (v Version) Compare(y Version) int {
-	return CompareVersion(v, y)
-}
-
-// IsValid checks if a string is a valid Version.
-func IsValid(v string) bool {
-	_, err := Parse(v)
-	return err == nil
 }

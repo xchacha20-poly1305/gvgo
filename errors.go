@@ -1,16 +1,17 @@
 package gvgo
 
-var _ error = versionError{}
+var _ error = Error{}
 
-type versionError struct {
-	message string
+// Error is the error of gvgo.
+type Error struct {
+	reason string
 }
 
-func (v versionError) Error() string {
-	return "gvgo: " + v.message
+func (e Error) Error() string {
+	return "gvgo: " + e.reason
 }
 
 var (
-	ErrMissMain error = versionError{"main part is empty"}
-	ErrMainLong error = versionError{"main part is too long"}
+	ErrInvalidKind error = Error{"invalid kind"}
+	ErrInvalidGit  error = Error{"invalid git info"}
 )

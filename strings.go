@@ -1,29 +1,21 @@
 package gvgo
 
-import (
-	"cmp"
-	"strings"
-)
-
-func before(s string, b string) string {
-	index := strings.Index(s, b)
-	if index < 0 {
-		return s
+// cutInt scans the leading decimal number at the start of x to an integer
+// and returns that value and the rest of the string.
+func cutInt(x string) (n, rest string, ok bool) {
+	i := 0
+	for i < len(x) && '0' <= x[i] && x[i] <= '9' {
+		i++
 	}
-	return s[:index]
+	if i == 0 || x[0] == '0' && i != 1 { // no digits or unnecessary leading zero
+		return "", "", false
+	}
+	return x[:i], x[i:], true
 }
 
-func after(s string, a string) string {
-	index := strings.Index(s, a)
-	if index < 0 {
-		return s
-	}
-	return s[index+len(a):]
-}
-
-// compareInt returns cmp.Compare(x, y) interpreting x and y as decimal numbers.
-// (Copied from golang.org/x/mod/semver's cmpInt.)
-func compareInt(x, y string) int {
+// cmpInt returns cmp.Compare(x, y) interpreting x and y as decimal numbers.
+// (Copied from golang.org/x/mod/semver's compareInt.)
+func cmpInt(x, y string) int {
 	if x == y {
 		return 0
 	}
@@ -38,49 +30,4 @@ func compareInt(x, y string) int {
 	} else {
 		return +1
 	}
-}
-
-const (
-	KindAlpha = "alpha"
-	KindBeta  = "beta"
-	KindRC    = "rc"
-)
-
-// IsValidKind returns true if kind is one of kinds("alpha", "beta" and "rc").
-func IsValidKind(kind string) bool {
-	return kind == KindAlpha || kind == KindBeta || kind == KindRC
-}
-
-func compareKind(x, y string) int {
-	x = strings.ToLower(x)
-	y = strings.ToLower(y)
-
-	xIsValidKind := IsValidKind(x)
-	yIsValidKind := IsValidKind(y)
-
-	if xIsValidKind && yIsValidKind {
-		// "" < alpha < beta < rc
-		return cmp.Compare(x, y)
-	}
-	if xIsValidKind && !yIsValidKind {
-		return 1
-	}
-	if !xIsValidKind && yIsValidKind {
-		return -1
-	}
-
-	// timestamp
-	return compareInt(x, y)
-}
-
-// cutInt scans the leading decimal number at the start of x to an integer.
-func cutInt(x string) (n string, ok bool) {
-	i := 0
-	for i < len(x) && '0' <= x[i] && x[i] <= '9' {
-		i++
-	}
-	if i == 0 || x[0] == '0' && i != 1 { // no digits or unnecessary leading zero
-		return "", false
-	}
-	return x[:i], true
 }
