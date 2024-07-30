@@ -135,6 +135,31 @@ func ValidKind(kind string) bool {
 	return kind == KindAlpha || kind == KindBeta || kind == KindRc
 }
 
+// CompareKind compares the pre-release kind. If they are not invalid, will return 0.
+// Empty means not pre version, so it is always bigger than any kind.
+func CompareKind(x, y string) int {
+	if x == y {
+		return 0
+	}
+	switch x {
+	case KindAlpha:
+		return -1
+	case KindBeta:
+		switch y {
+		case KindAlpha:
+			return 1
+		case KindRc, "":
+			return -1
+		}
+		// invalid
+		fallthrough
+	case KindRc, "":
+		return 1
+	default:
+		return 0
+	}
+}
+
 // String returns the readable string of version.
 // It not starts with "v".
 func (v Version) String() (version string) {
@@ -165,4 +190,32 @@ func (v Version) String() (version string) {
 		version += v.GitInfo
 	}
 	return
+}
+
+// Compare compares two version.
+func Compare(x, y Version) int {
+	if c := cmpInt(x.Major, y.Major); c != 0 {
+		return c
+	}
+	if c := cmpInt(x.Minor, y.Minor); c != 0 {
+		return c
+	}
+	if c := cmpInt(x.Patch, y.Patch); c != 0 {
+		return c
+	}
+	if c := CompareKind(x.Kind, y.Kind); c != 0 {
+		return c
+	}
+	if c := cmpInt(x.Pre, y.Pre); c != 0 {
+		return c
+	}
+	if c := cmpInt(x.BuildMetadata, y.BuildMetadata); c != 0 {
+		return c
+	}
+	xTimestamp, _, _ := strings.Cut(x.GitInfo, "-")
+	yTimestamp, _, _ := strings.Cut(y.GitInfo, "-")
+	if c := cmpInt(xTimestamp, yTimestamp); c != 0 {
+		return c
+	}
+	return 0
 }

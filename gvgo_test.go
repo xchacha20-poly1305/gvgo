@@ -130,3 +130,102 @@ func TestVersion_String(t *testing.T) {
 		})
 	}
 }
+
+func TestCompare(t *testing.T) {
+	tests := []struct {
+		name   string
+		v1, v2 Version
+		want   int
+	}{
+		{
+			name: "Just main",
+			v1: Version{
+				Major: "1",
+				Minor: "2",
+				Patch: "3",
+			},
+			v2: Version{
+				Major: "1",
+				Minor: "2",
+				Patch: "3",
+			},
+			want: 0,
+		},
+		{
+			name: "two kind",
+			v1: Version{
+				Major: "1",
+				Minor: "2",
+				Patch: "3",
+				Kind:  KindAlpha,
+			},
+			v2: Version{
+				Major: "1",
+				Minor: "2",
+				Patch: "3",
+				Kind:  KindBeta,
+			},
+			want: -1,
+		},
+		{
+			name: "kind with normal",
+			v1: Version{
+				Major: "1",
+				Minor: "2",
+				Patch: "3",
+				Kind:  KindAlpha,
+			},
+			v2: Version{
+				Major: "1",
+				Minor: "2",
+				Patch: "3",
+			},
+			want: -1,
+		},
+		{
+			name: "with git",
+			v1: Version{
+				Major:   "1",
+				Minor:   "2",
+				Patch:   "3",
+				GitInfo: "20240719175910-8a7402abbf56",
+			},
+			v2: Version{
+				Major:   "1",
+				Minor:   "2",
+				Patch:   "3",
+				GitInfo: "20240717063648-d3b0c53281a1",
+			},
+			want: 1,
+		},
+		{
+			name: "pre + git",
+			v1: Version{
+				Major:         "1",
+				Minor:         "10",
+				Patch:         "0",
+				Kind:          KindAlpha,
+				Pre:           "0",
+				BuildMetadata: "0",
+				GitInfo:       "20240727034746-0efc42a5ef8d",
+			},
+			v2: Version{
+				Major:         "1",
+				Minor:         "10",
+				Patch:         "0",
+				Kind:          KindAlpha,
+				Pre:           "0",
+				BuildMetadata: "0",
+				GitInfo:       "20240727034745-bf12e2370b4c",
+			},
+			want: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Compare(tt.v1, tt.v2); got != tt.want {
+				t.Errorf("Compare() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
