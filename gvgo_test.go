@@ -4,93 +4,129 @@ import (
 	"testing"
 )
 
-func TestParse(t *testing.T) {
+func TestValidKind(t *testing.T) {
 	tests := []struct {
-		name    string
-		str     string
-		wantErr bool
+		name string
+		kind string
+		want bool
 	}{
 		{
-			name:    "Alpha",
-			str:     "v5.2.0-alpha.0",
-			wantErr: false,
+			name: "alpha",
+			kind: KindAlpha,
+			want: true,
 		},
 		{
-			name:    "beta",
-			str:     "v1.3.14-beta.1",
-			wantErr: false,
+			name: "beta",
+			kind: KindBeta,
+			want: true,
 		},
 		{
-			name:    "rc",
-			str:     "v8.8.6-rc.2",
-			wantErr: false,
+			name: "rc",
+			kind: KindRc,
+			want: true,
 		},
 		{
-			name:    "No point kind",
-			str:     "v4.9.8-rc0",
-			wantErr: false,
+			name: "invalid",
+			kind: "invalid",
+			want: false,
 		},
 		{
-			name:    "No \"v\"",
-			str:     "2.4.3",
-			wantErr: false,
-		},
-		{
-			name:    "Short 1",
-			str:     "0",
-			wantErr: false,
-		},
-		{
-			name:    "Short 2",
-			str:     "1.2",
-			wantErr: false,
-		},
-		{
-			name:    "Short 3",
-			str:     "3.4.5",
-			wantErr: false,
-		},
-		{
-			name:    "Git",
-			str:     "v0.0.0-20240506185415-9bf2ced13842",
-			wantErr: false,
-		},
-		{
-			name:    "Too long",
-			str:     "v1.1.1.1",
-			wantErr: true,
-		},
-		{
-			name:    "Empty",
-			str:     "",
-			wantErr: true,
-		},
-		{
-			name:    "Big",
-			str:     "v9999999999999999999999.99999999999999999999999999.9999999999999999999999",
-			wantErr: false,
-		},
-		{
-			name:    "Not number",
-			str:     "number.miss",
-			wantErr: true,
+			name: "empty",
+			kind: "",
+			want: false,
 		},
 	}
-
 	for _, tt := range tests {
-		v, err := Parse(tt.str)
-		if tt.wantErr {
-			if err == nil {
-				t.Errorf("[%s] wants error but got: %s", tt.name, v.String())
-			} else {
-				t.Logf("[%s] wants error and passed", tt.name)
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ValidKind(tt.kind); got != tt.want {
+				t.Errorf("ValidKind() = %v, want %v", got, tt.want)
 			}
-			continue
-		}
-		if err != nil {
-			t.Errorf("Failed to parse [%s]: %v", tt.name, err)
-			continue
-		}
-		t.Logf("Success [%s]: %s", tt.name, v.String())
+		})
+	}
+}
+
+func TestVersion_String(t *testing.T) {
+	tests := []struct {
+		name    string
+		version Version
+		want    string
+	}{
+		{
+			name:    "normal",
+			version: New(),
+			want:    "0.0.0",
+		},
+		{
+			name: "pre just kind",
+			version: Version{
+				Major: "1",
+				Minor: "6",
+				Patch: "3",
+				Kind:  KindRc,
+			},
+			want: "1.6.3-rc",
+		},
+		{
+			name: "pre",
+			version: Version{
+				Major: "2",
+				Minor: "5",
+				Patch: "6",
+				Kind:  KindBeta,
+				Pre:   "9",
+			},
+			want: "2.5.6-beta.9",
+		},
+		{
+			name: "pre without kind",
+			version: Version{
+				Major: "5",
+				Minor: "1",
+				Patch: "2",
+				Pre:   "0",
+			},
+			want: "5.1.2",
+		},
+		{
+			name: "totally not released",
+			version: Version{
+				Major:   "0",
+				Minor:   "0",
+				Patch:   "0",
+				GitInfo: "20240719175910-8a7402abbf56",
+			},
+			want: "0.0.0-20240719175910-8a7402abbf56",
+		},
+		{
+			name: "not release next version",
+			version: Version{
+				Major:         "0",
+				Minor:         "6",
+				Patch:         "2",
+				BuildMetadata: "0",
+				GitInfo:       "20240717063648-d3b0c53281a1",
+			},
+			want: "0.6.2-0.20240717063648-d3b0c53281a1",
+		},
+		{
+			name: "pre with pseudo",
+			version: Version{
+				Major:         "1",
+				Minor:         "10",
+				Patch:         "0",
+				Kind:          KindAlpha,
+				Pre:           "26",
+				BuildMetadata: "0",
+				GitInfo:       "20240727034746-0efc42a5ef8d",
+			},
+			want: "1.10.0-alpha.26.0.20240727034746-0efc42a5ef8d",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if gotVersion := tt.version.String(); gotVersion != tt.want {
+				t.Errorf("String() = %v, want %v", gotVersion, tt.want)
+			}
+		})
 	}
 }
