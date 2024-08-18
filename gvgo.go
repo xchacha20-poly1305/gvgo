@@ -197,6 +197,11 @@ func (v Version) String() (version string) {
 	return
 }
 
+// IsPseudo returns true when version is pseudo-version.
+func (v Version) IsPseudo() bool {
+	return ValidCommitInfo(v.GitInfo)
+}
+
 // Compare compares two version.
 func Compare(x, y Version) int {
 	if c := cmpInt(x.Major, y.Major); c != 0 {
@@ -223,4 +228,16 @@ func Compare(x, y Version) int {
 		return c
 	}
 	return 0
+}
+
+// ValidCommitInfo returns true when commitInfo is valid.
+func ValidCommitInfo(commitInfo string) bool {
+	timestamp, rest, ok := cutInt(commitInfo)
+	if !ok || timestamp == "" {
+		return false
+	}
+	if strings.TrimPrefix(rest, "-") == "" {
+		return false
+	}
+	return true
 }
