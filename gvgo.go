@@ -369,3 +369,11 @@ func (p Parsed) String() (s string) {
 	}
 	return
 }
+
+func (p Parsed) IsPrerelease() bool {
+	return strings.TrimLeft(p.Prerelease, "-") != ""
+}
+
+func (p Parsed) IsBuild() bool {
+	return strings.TrimLeft(p.Build, "+") != ""
+}
