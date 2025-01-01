@@ -1,243 +1,371 @@
-// Package gvgo implements version compare for Go module version.
+// Copyright 2018 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+// Package gvgo implements comparison of semantic version strings.
+// In this package, semantic version strings must begin with a leading "v",
+// as in "v1.0.0".
 //
-// Rules detail: https://go.dev/doc/modules/version-numbers
+// The general form of a semantic version string accepted by this package is
 //
-// https://go.dev/ref/mod#pseudo-versions
+//	vMAJOR[.MINOR[.PATCH[-PRERELEASE][+BUILD]]]
+//
+// where square brackets indicate optional parts of the syntax;
+// MAJOR, MINOR, and PATCH are decimal integers without extra leading zeros;
+// PRERELEASE and BUILD are each a series of non-empty dot-separated identifiers
+// using only alphanumeric characters and hyphens; and
+// all-numeric PRERELEASE identifiers must not have leading zeros.
+//
+// This package follows Semantic Versioning 2.0.0 (see semver.org)
+// with two exceptions. First, it requires the "v" prefix. Second, it recognizes
+// vMAJOR and vMAJOR.MINOR (with no prerelease or build suffixes)
+// as shorthands for vMAJOR.0.0 and vMAJOR.MINOR.0.
 package gvgo
 
 import (
 	"strings"
 )
 
-// A Version is a parsed Go pseudo version:
-// major[.Minor[.Patch]][kind[pre]][.BuildMetadata.Timestamp-Commit]
-// The numbers are the original decimal strings to avoid integer overflows
-// and since there is very little actual math. (Probably overflow doesn't matter in practice,
-// but at the time this code was written, there was an existing test that used
-// 1.99999999999, which does not fit in an int on 32-bit platforms.
-// The "big decimal" representation avoids the problem entirely.)
-type Version struct {
-	Major string // decimal
-	Minor string // decimal
-	Patch string // decimal
-	Kind  string // "", "alpha", "beta", "rc"
-	Pre   string // decimal or ""
-
-	// For pseudo-version. We assume has Commit means use pseudo-version.
-	BuildMetadata string // decimal or ""
-	GitInfo       string // timestamp-commit_hash
+// Parsed returns the parsed form of a semantic version string.
+type Parsed struct {
+	Major      string
+	Minor      string
+	Patch      string
+	Short      string // Starts with "."
+	Prerelease string // Starts with "-"
+	Build      string // Starts with "+"
 }
 
-func New() Version {
-	return Version{
-		Major: "0",
-		Minor: "0",
-		Patch: "0",
-	}
+// IsValid reports whether v is a valid semantic version string.
+func IsValid(v string) bool {
+	_, ok := New(v)
+	return ok
 }
 
-// Parse parses version.
-func Parse(raw string) (v Version, err error) {
-	raw = strings.TrimPrefix(raw, "v")
+// CanonicalString is like Canonical,
+// but returns empty string if v is not a valid semantic version string.
+func CanonicalString(v string) string {
+	p, ok := New(v)
+	if !ok {
+		return ""
+	}
+	if p.Build != "" {
+		return v[:len(v)-len(p.Build)]
+	}
+	if p.Short != "" {
+		return v + p.Short
+	}
+	return v
+}
 
-	var mainPart [2]string
-	mainPart[0], mainPart[1], _ = strings.Cut(raw, "-")
-	v.Major, v.Minor, v.Patch, err = parseMainPart(mainPart[0])
-	if err != nil {
-		return Version{}, err
+// Canonical returns the canonical formatting of the semantic version.
+// It fills in any missing .MINOR or .PATCH and discards build metadata.
+// Two semantic versions compare equal only if their canonical formattings
+// are identical strings.
+func (p Parsed) Canonical() string {
+	s := p.String()
+	if p.Build != "" {
+		return s[:len(s)-len(p.Build)]
 	}
-	if mainPart[1] == "" {
-		// Not pre-release or pseudo.
-		return
+	if p.Short != "" {
+		return s + p.Short
 	}
+	return s
+}
 
-	var afterKind string
-	switch mainPart[1][0] {
-	case KindAlpha[0]:
-		var found bool
-		afterKind, found = strings.CutPrefix(mainPart[1], KindAlpha)
-		if !found {
-			return Version{}, ErrInvalidKind
-		}
-		v.Kind = KindAlpha
-	case KindBeta[0]:
-		var found bool
-		afterKind, found = strings.CutPrefix(mainPart[1], KindBeta)
-		if !found {
-			return Version{}, ErrInvalidKind
-		}
-		v.Kind = KindBeta
-	case KindRc[0]:
-		var found bool
-		afterKind, found = strings.CutPrefix(mainPart[1], KindRc)
-		if !found {
-			return Version{}, ErrInvalidKind
-		}
-		v.Kind = KindRc
-	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-		// Not pre-release
-		v.BuildMetadata, v.GitInfo, err = parsePseudo(mainPart[1])
-		if err != nil {
-			return Version{}, err
-		}
+// CompareString is same as Compare.
+//
+// An invalid semantic version string is considered less than a valid one.
+// All invalid semantic version strings compare equal to each other.
+func CompareString(v, w string) int {
+	pv, ok1 := New(v)
+	pw, ok2 := New(w)
+	if !ok1 && !ok2 {
+		return 0
+	}
+	if !ok1 {
+		return -1
+	}
+	if !ok2 {
+		return +1
+	}
+	return Compare(pv, pw)
+}
+
+func (p Parsed) Compare(v Parsed) int {
+	return Compare(p, v)
+}
+
+// Compare returns an integer comparing two versions according to
+// semantic version precedence.
+// The result will be 0 if v == w, -1 if v < w, or +1 if v > w.
+func Compare(v, w Parsed) int {
+	if c := compareInt(v.Major, w.Major); c != 0 {
+		return c
+	}
+	if c := compareInt(v.Minor, w.Minor); c != 0 {
+		return c
+	}
+	if c := compareInt(v.Patch, w.Patch); c != 0 {
+		return c
+	}
+	return comparePrerelease(v.Prerelease, w.Prerelease)
+}
+
+// New parses a new parsed version.
+func New(v string) (p Parsed, ok bool) {
+	if v == "" || v[0] != 'v' {
 		return
-	default:
-		return Version{}, ErrInvalidKind
 	}
-	afterKind = strings.TrimPrefix(afterKind, ".")
-	if afterKind == "" {
+	p.Major, v, ok = parseInt(v[1:])
+	if !ok {
 		return
 	}
-	v.BuildMetadata, v.GitInfo, err = parsePseudo(afterKind)
-	if err != nil {
-		return Version{}, err
+	if v == "" {
+		p.Minor = "0"
+		p.Patch = "0"
+		p.Short = ".0.0"
+		return
 	}
+	if v[0] != '.' {
+		ok = false
+		return
+	}
+	p.Minor, v, ok = parseInt(v[1:])
+	if !ok {
+		return
+	}
+	if v == "" {
+		p.Patch = "0"
+		p.Short = ".0"
+		return
+	}
+	if v[0] != '.' {
+		ok = false
+		return
+	}
+	p.Patch, v, ok = parseInt(v[1:])
+	if !ok {
+		return
+	}
+	if len(v) > 0 && v[0] == '-' {
+		p.Prerelease, v, ok = parsePrerelease(v)
+		if !ok {
+			return
+		}
+	}
+	if len(v) > 0 && v[0] == '+' {
+		p.Build, v, ok = parseBuild(v)
+		if !ok {
+			return
+		}
+	}
+	if v != "" {
+		ok = false
+		return
+	}
+	ok = true
 	return
 }
 
-// parseMainPart parses the main part of version like 1.0.0.
-func parseMainPart(raw string) (major, minor, patch string, err error) {
-	var success bool
-	major, raw, success = cutInt(raw)
-	if !success {
-		return "", "", "", Error{"read major version"}
+func parseInt(v string) (t, rest string, ok bool) {
+	if v == "" {
+		return
 	}
-	minor, raw, success = cutInt(strings.TrimPrefix(raw, "."))
-	if !success {
-		return major, "0", "0", nil
+	if v[0] < '0' || '9' < v[0] {
+		return
 	}
-	patch, raw, success = cutInt(strings.TrimPrefix(raw, "."))
-	if !success {
-		patch = "0"
+	i := 1
+	for i < len(v) && '0' <= v[i] && v[i] <= '9' {
+		i++
 	}
-	return
+	if v[0] == '0' && i != 1 {
+		return
+	}
+	return v[:i], v[i:], true
 }
 
-// parsePseudo parse pseudo parts like "0.20240717063648-d3b0c53281a1" or "20240719175910-8a7402abbf56"
-func parsePseudo(raw string) (buildMetadata, gitInfo string, err error) {
-	num, rest, success := cutInt(raw)
-	if !success {
-		return "", "", ErrInvalidGit
+func parsePrerelease(v string) (t, rest string, ok bool) {
+	// "A pre-release version MAY be denoted by appending a hyphen and
+	// a series of dot separated identifiers immediately following the Patch version.
+	// Identifiers MUST comprise only ASCII alphanumerics and hyphen [0-9A-Za-z-].
+	// Identifiers MUST NOT be empty. Numeric identifiers MUST NOT include leading zeroes."
+	if v == "" || v[0] != '-' {
+		return
 	}
-	if strings.HasPrefix(rest, "-") {
-		// Pure git
-		// "20240719175910-8a7402abbf56"
-		return "", raw, nil
+	i := 1
+	start := 1
+	for i < len(v) && v[i] != '+' {
+		if !isIdentChar(v[i]) && v[i] != '.' {
+			return
+		}
+		if v[i] == '.' {
+			if start == i || isBadNum(v[start:i]) {
+				return
+			}
+			start = i + 1
+		}
+		i++
 	}
-	// "0.20240717063648-d3b0c53281a1"
-	return num, strings.TrimPrefix(rest, "."), nil
+	if start == i || isBadNum(v[start:i]) {
+		return
+	}
+	return v[:i], v[i:], true
 }
 
-// Pre-release kind.
-const (
-	KindAlpha = "alpha"
-	KindBeta  = "beta"
-	KindRc    = "rc"
-)
-
-// ValidKind returns true when kind is valid.
-func ValidKind(kind string) bool {
-	return kind == KindAlpha || kind == KindBeta || kind == KindRc
+func parseBuild(v string) (t, rest string, ok bool) {
+	if v == "" || v[0] != '+' {
+		return
+	}
+	i := 1
+	start := 1
+	for i < len(v) {
+		if !isIdentChar(v[i]) && v[i] != '.' {
+			return
+		}
+		if v[i] == '.' {
+			if start == i {
+				return
+			}
+			start = i + 1
+		}
+		i++
+	}
+	if start == i {
+		return
+	}
+	return v[:i], v[i:], true
 }
 
-// CompareKind compares the pre-release kind. If they are not invalid, will return 0.
-// Empty means not pre version, so it is always bigger than any kind.
-func CompareKind(x, y string) int {
+func isIdentChar(c byte) bool {
+	return 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-'
+}
+
+func isBadNum(v string) bool {
+	i := 0
+	for i < len(v) && '0' <= v[i] && v[i] <= '9' {
+		i++
+	}
+	return i == len(v) && i > 1 && v[0] == '0'
+}
+
+func isNum(v string) bool {
+	i := 0
+	for i < len(v) && '0' <= v[i] && v[i] <= '9' {
+		i++
+	}
+	return i == len(v)
+}
+
+func compareInt(x, y string) int {
 	if x == y {
 		return 0
 	}
-	switch x {
-	case KindAlpha:
+	if len(x) < len(y) {
 		return -1
-	case KindBeta:
-		switch y {
-		case KindAlpha:
-			return 1
-		case KindRc, "":
-			return -1
-		}
-		// invalid
-		fallthrough
-	case KindRc, "":
-		return 1
-	default:
+	}
+	if len(x) > len(y) {
+		return +1
+	}
+	if x < y {
+		return -1
+	} else {
+		return +1
+	}
+}
+
+func comparePrerelease(x, y string) int {
+	// "When major, minor, and Patch are equal, a pre-release version has
+	// lower precedence than a normal version.
+	// Example: 1.0.0-alpha < 1.0.0.
+	// Precedence for two pre-release versions with the same major, minor,
+	// and Patch version MUST be determined by comparing each dot separated
+	// identifier from left to right until a difference is found as follows:
+	// identifiers consisting of only digits are compared numerically and
+	// identifiers with letters or hyphens are compared lexically in ASCII
+	// sort order. Numeric identifiers always have lower precedence than
+	// non-numeric identifiers. A larger set of pre-release fields has a
+	// higher precedence than a smaller set, if all of the preceding
+	// identifiers are equal.
+	// Example: 1.0.0-alpha < 1.0.0-alpha.1 < 1.0.0-alpha.beta <
+	// 1.0.0-beta < 1.0.0-beta.2 < 1.0.0-beta.11 < 1.0.0-rc.1 < 1.0.0."
+	if x == y {
 		return 0
 	}
+	if x == "" {
+		return +1
+	}
+	if y == "" {
+		return -1
+	}
+	for x != "" && y != "" {
+		x = x[1:] // skip - or .
+		y = y[1:] // skip - or .
+		var dx, dy string
+		dx, x = nextIdent(x)
+		dy, y = nextIdent(y)
+		if dx != dy {
+			ix := isNum(dx)
+			iy := isNum(dy)
+			if ix != iy {
+				if ix {
+					return -1
+				} else {
+					return +1
+				}
+			}
+			if ix {
+				if len(dx) < len(dy) {
+					return -1
+				}
+				if len(dx) > len(dy) {
+					return +1
+				}
+			}
+			if dx < dy {
+				return -1
+			} else {
+				return +1
+			}
+		}
+	}
+	if x == "" {
+		return -1
+	} else {
+		return +1
+	}
 }
 
-// String returns the readable string of version.
-// It not starts with "v".
-func (v Version) String() (version string) {
-	version = v.Major + "." + v.Minor + "." + v.Patch
-	isPre := v.Kind != ""
-	hasGit := v.GitInfo != ""
-	if !isPre && !hasGit {
-		return
+func nextIdent(x string) (dx, rest string) {
+	i := 0
+	for i < len(x) && x[i] != '.' {
+		i++
 	}
+	return x[:i], x[i:]
+}
 
-	version += "-"
-	if isPre {
-		version += v.Kind
-		if v.Pre != "" {
-			version += "." + v.Pre
+func (p Parsed) String() (s string) {
+	s = "v"
+	appendOrDefault := func(v *string) {
+		if *v == "" {
+			s += "0"
+		} else {
+			s += *v
 		}
 	}
-	if hasGit {
-		if v.BuildMetadata != "" {
-			if !strings.HasSuffix(version, "-") {
-				version += "."
-			}
-			version += v.BuildMetadata
-		}
-		if !strings.HasSuffix(version, "-") {
-			version += "."
-		}
-		version += v.GitInfo
+	appendOrDefault(&p.Major)
+	s += "."
+	appendOrDefault(&p.Minor)
+	s += "."
+	appendOrDefault(&p.Patch)
+	if p.Short != "" {
+		s += "-" + strings.TrimLeft(p.Short, ".")
+	}
+	if p.Prerelease != "" {
+		s += p.Prerelease
+	}
+	if p.Build != "" {
+		s += p.Build
 	}
 	return
-}
-
-// IsPseudo returns true when version is pseudo-version.
-func (v Version) IsPseudo() bool {
-	return ValidCommitInfo(v.GitInfo)
-}
-
-// Compare compares two version.
-func Compare(x, y Version) int {
-	if c := cmpInt(x.Major, y.Major); c != 0 {
-		return c
-	}
-	if c := cmpInt(x.Minor, y.Minor); c != 0 {
-		return c
-	}
-	if c := cmpInt(x.Patch, y.Patch); c != 0 {
-		return c
-	}
-	if c := CompareKind(x.Kind, y.Kind); c != 0 {
-		return c
-	}
-	if c := cmpInt(x.Pre, y.Pre); c != 0 {
-		return c
-	}
-	if c := cmpInt(x.BuildMetadata, y.BuildMetadata); c != 0 {
-		return c
-	}
-	xTimestamp, _, _ := strings.Cut(x.GitInfo, "-")
-	yTimestamp, _, _ := strings.Cut(y.GitInfo, "-")
-	if c := cmpInt(xTimestamp, yTimestamp); c != 0 {
-		return c
-	}
-	return 0
-}
-
-// ValidCommitInfo returns true when commitInfo is valid.
-func ValidCommitInfo(commitInfo string) bool {
-	timestamp, rest, ok := cutInt(commitInfo)
-	if !ok || timestamp == "" {
-		return false
-	}
-	if strings.TrimPrefix(rest, "-") == "" {
-		return false
-	}
-	return true
 }

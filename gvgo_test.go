@@ -1,353 +1,130 @@
+// Copyright 2018 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package gvgo
 
 import (
-	"reflect"
+	"math/rand/v2"
+	"slices"
+	"strings"
 	"testing"
 )
 
-func TestNew(t *testing.T) {
-	want := Version{
-		Major: "0",
-		Minor: "0",
-		Patch: "0",
-	}
-	if got := New(); !reflect.DeepEqual(got, want) {
-		t.Errorf("New() = %v, want %v", got, want)
+var tests = []struct {
+	in       string
+	stdout   string
+	reparsed string
+}{
+	{"bad", "", "v0.0.0"},
+	{"v1-alpha.beta.gamma", "", "v1.0.0"},
+	{"v1-pre", "", "v1.0.0"},
+	{"v1+meta", "", "v1.0.0"},
+	{"v1-pre+meta", "", "v1.0.0"},
+	{"v1.2-pre", "", "v1.2.0"},
+	{"v1.2+meta", "", "v1.2.0"},
+	{"v1.2-pre+meta", "", "v1.2.0"},
+	{"v1.0.0-alpha", "v1.0.0-alpha", "v1.0.0-alpha"},
+	{"v1.0.0-alpha.1", "v1.0.0-alpha.1", "v1.0.0-alpha.1"},
+	{"v1.0.0-alpha.beta", "v1.0.0-alpha.beta", "v1.0.0-alpha.beta"},
+	{"v1.0.0-beta", "v1.0.0-beta", "v1.0.0-beta"},
+	{"v1.0.0-beta.2", "v1.0.0-beta.2", "v1.0.0-beta.2"},
+	{"v1.0.0-beta.11", "v1.0.0-beta.11", "v1.0.0-beta.11"},
+	{"v1.0.0-rc.1", "v1.0.0-rc.1", "v1.0.0-rc.1"},
+	{"v1", "v1.0.0", "v1.0.0-0.0"},
+	{"v1.0", "v1.0.0", "v1.0.0-0"},
+	{"v1.0.0", "v1.0.0", "v1.0.0"},
+	{"v1.2", "v1.2.0", "v1.2.0-0"},
+	{"v1.2.0", "v1.2.0", "v1.2.0"},
+	{"v1.2.3-456", "v1.2.3-456", "v1.2.3-456"},
+	{"v1.2.3-456.789", "v1.2.3-456.789", "v1.2.3-456.789"},
+	{"v1.2.3-456-789", "v1.2.3-456-789", "v1.2.3-456-789"},
+	{"v1.2.3-456a", "v1.2.3-456a", "v1.2.3-456a"},
+	{"v1.2.3-pre", "v1.2.3-pre", "v1.2.3-pre"},
+	{"v1.2.3-pre+meta", "v1.2.3-pre", "v1.2.3-pre+meta"},
+	{"v1.2.3-pre.1", "v1.2.3-pre.1", "v1.2.3-pre.1"},
+	{"v1.2.3-zzz", "v1.2.3-zzz", "v1.2.3-zzz"},
+	{"v1.2.3", "v1.2.3", "v1.2.3"},
+	{"v1.2.3+meta", "v1.2.3", "v1.2.3+meta"},
+	{"v1.2.3+meta-pre", "v1.2.3", "v1.2.3+meta-pre"},
+	{"v1.2.3+meta-pre.sha.256a", "v1.2.3", "v1.2.3+meta-pre.sha.256a"},
+}
+
+func TestIsValid(t *testing.T) {
+	for _, tt := range tests {
+		ok := IsValid(tt.in)
+		if ok != (tt.stdout != "") {
+			t.Errorf("IsValid(%q) = %v, want %v", tt.in, ok, !ok)
+		}
 	}
 }
 
-func TestParse(t *testing.T) {
-	tests := []struct {
-		name    string
-		raw     string
-		wantV   Version
-		wantErr bool
-	}{
-		{
-			name: "normal",
-			raw:  "v1.2.3",
-			wantV: Version{
-				Major: "1",
-				Minor: "2",
-				Patch: "3",
-			},
-			wantErr: false,
-		},
-		{
-			name: "not has v",
-			raw:  "1.0.0",
-			wantV: Version{
-				Major: "1",
-				Minor: "0",
-				Patch: "0",
-			},
-			wantErr: false,
-		},
-		{
-			name:    "empty",
-			raw:     "",
-			wantErr: true,
-		},
-		{
-			name:    "invalid",
-			raw:     "gvgo!",
-			wantErr: true,
-		},
-		{
-			name: "pre",
-			raw:  "v1.23.0-rc.2",
-			wantV: Version{
-				Major: "1",
-				Minor: "23",
-				Patch: "0",
-				Kind:  KindRc,
-				Pre:   "2",
-			},
-			wantErr: false,
-		},
-		{
-			name: "pre just kind",
-			raw:  "0.8.2-rc",
-			wantV: Version{
-				Major: "0",
-				Minor: "8",
-				Patch: "2",
-				Kind:  KindRc,
-			},
-			wantErr: false,
-		},
-		{
-			name: "git",
-			raw:  "v0.6.2-0.20240717063648-d3b0c53281a1",
-			wantV: Version{
-				Major:   "0",
-				Minor:   "6",
-				Patch:   "2",
-				GitInfo: "20240717063648-d3b0c53281a1",
-			},
-			wantErr: false,
-		},
-		{
-			name: "pre + git",
-			raw:  "v1.10.0-alpha.26.0.20240727034746-0efc42a5ef8d",
-			wantV: Version{
-				Major:         "1",
-				Minor:         "10",
-				Patch:         "0",
-				Kind:          KindAlpha,
-				Pre:           "26",
-				BuildMetadata: "0",
-				GitInfo:       "20240727034746-0efc42a5ef8d",
-			},
-			wantErr: false,
-		},
-		{
-			name: "too big",
-			raw:  "1.99999999999",
-			wantV: Version{
-				Major: "1",
-				Minor: "99999999999",
-				Patch: "0",
-			},
-			wantErr: false,
-		},
-	}
+func TestCanonicalString(t *testing.T) {
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotV, err := Parse(tt.raw)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Parse() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if err != nil && !reflect.DeepEqual(gotV, tt.wantV) {
-				t.Errorf("Parse() gotV = %v, want %v", gotV, tt.wantV)
-			}
-		})
+		out := CanonicalString(tt.in)
+		if out != tt.stdout {
+			t.Errorf("Canonical(%q) = %q, want %q", tt.in, out, tt.stdout)
+		}
 	}
 }
 
-func TestValidKind(t *testing.T) {
-	tests := []struct {
-		name string
-		kind string
-		want bool
-	}{
-		{
-			name: "alpha",
-			kind: KindAlpha,
-			want: true,
-		},
-		{
-			name: "beta",
-			kind: KindBeta,
-			want: true,
-		},
-		{
-			name: "rc",
-			kind: KindRc,
-			want: true,
-		},
-		{
-			name: "invalid",
-			kind: "invalid",
-			want: false,
-		},
-		{
-			name: "empty",
-			kind: "",
-			want: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := ValidKind(tt.kind); got != tt.want {
-				t.Errorf("ValidKind() = %v, want %v", got, tt.want)
+func TestCompareString(t *testing.T) {
+	for i, ti := range tests {
+		for j, tj := range tests {
+			cmp := CompareString(ti.in, tj.in)
+			var want int
+			if ti.stdout == tj.stdout {
+				want = 0
+			} else if i < j {
+				want = -1
+			} else {
+				want = +1
 			}
-		})
+			if cmp != want {
+				t.Errorf("Compare(%q, %q) = %d, want %d", ti.in, tj.in, cmp, want)
+			}
+		}
 	}
 }
 
-func TestVersion_String(t *testing.T) {
-	tests := []struct {
-		name    string
-		version Version
-		want    string
-	}{
-		{
-			name:    "normal",
-			version: New(),
-			want:    "0.0.0",
-		},
-		{
-			name: "pre just kind",
-			version: Version{
-				Major: "1",
-				Minor: "6",
-				Patch: "3",
-				Kind:  KindRc,
-			},
-			want: "1.6.3-rc",
-		},
-		{
-			name: "pre",
-			version: Version{
-				Major: "2",
-				Minor: "5",
-				Patch: "6",
-				Kind:  KindBeta,
-				Pre:   "9",
-			},
-			want: "2.5.6-beta.9",
-		},
-		{
-			name: "pre without kind",
-			version: Version{
-				Major: "5",
-				Minor: "1",
-				Patch: "2",
-				Pre:   "0",
-			},
-			want: "5.1.2",
-		},
-		{
-			name: "totally not released",
-			version: Version{
-				Major:   "0",
-				Minor:   "0",
-				Patch:   "0",
-				GitInfo: "20240719175910-8a7402abbf56",
-			},
-			want: "0.0.0-20240719175910-8a7402abbf56",
-		},
-		{
-			name: "not release next version",
-			version: Version{
-				Major:         "0",
-				Minor:         "6",
-				Patch:         "2",
-				BuildMetadata: "0",
-				GitInfo:       "20240717063648-d3b0c53281a1",
-			},
-			want: "0.6.2-0.20240717063648-d3b0c53281a1",
-		},
-		{
-			name: "pre with pseudo",
-			version: Version{
-				Major:         "1",
-				Minor:         "10",
-				Patch:         "0",
-				Kind:          KindAlpha,
-				Pre:           "26",
-				BuildMetadata: "0",
-				GitInfo:       "20240727034746-0efc42a5ef8d",
-			},
-			want: "1.10.0-alpha.26.0.20240727034746-0efc42a5ef8d",
-		},
+func TestSort(t *testing.T) {
+	var versions []Parsed
+	for _, test := range tests {
+		parsed, ok := New(test.in)
+		if !ok {
+			continue
+		}
+		versions = append(versions, parsed)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if gotVersion := tt.version.String(); gotVersion != tt.want {
-				t.Errorf("String() = %v, want %v", gotVersion, tt.want)
-			}
-		})
+	rand.Shuffle(len(versions), func(i, j int) { versions[i], versions[j] = versions[j], versions[i] })
+	slices.SortFunc(versions, Compare)
+	if !slices.IsSortedFunc(versions, Compare) {
+		all := make([]string, 0, len(versions))
+		for _, s := range all {
+			all = append(all, s)
+		}
+		t.Errorf("list is not sorted:\n%s", strings.Join(all, "\n"))
 	}
 }
 
-func TestCompare(t *testing.T) {
-	tests := []struct {
-		name   string
-		v1, v2 Version
-		want   int
-	}{
-		{
-			name: "Just main",
-			v1: Version{
-				Major: "1",
-				Minor: "2",
-				Patch: "3",
-			},
-			v2: Version{
-				Major: "1",
-				Minor: "2",
-				Patch: "3",
-			},
-			want: 0,
-		},
-		{
-			name: "two kind",
-			v1: Version{
-				Major: "1",
-				Minor: "2",
-				Patch: "3",
-				Kind:  KindAlpha,
-			},
-			v2: Version{
-				Major: "1",
-				Minor: "2",
-				Patch: "3",
-				Kind:  KindBeta,
-			},
-			want: -1,
-		},
-		{
-			name: "kind with normal",
-			v1: Version{
-				Major: "1",
-				Minor: "2",
-				Patch: "3",
-				Kind:  KindAlpha,
-			},
-			v2: Version{
-				Major: "1",
-				Minor: "2",
-				Patch: "3",
-			},
-			want: -1,
-		},
-		{
-			name: "with git",
-			v1: Version{
-				Major:   "1",
-				Minor:   "2",
-				Patch:   "3",
-				GitInfo: "20240719175910-8a7402abbf56",
-			},
-			v2: Version{
-				Major:   "1",
-				Minor:   "2",
-				Patch:   "3",
-				GitInfo: "20240717063648-d3b0c53281a1",
-			},
-			want: 1,
-		},
-		{
-			name: "pre + git",
-			v1: Version{
-				Major:         "1",
-				Minor:         "10",
-				Patch:         "0",
-				Kind:          KindAlpha,
-				Pre:           "0",
-				BuildMetadata: "0",
-				GitInfo:       "20240727034746-0efc42a5ef8d",
-			},
-			v2: Version{
-				Major:         "1",
-				Minor:         "10",
-				Patch:         "0",
-				Kind:          KindAlpha,
-				Pre:           "0",
-				BuildMetadata: "0",
-				GitInfo:       "20240727034745-bf12e2370b4c",
-			},
-			want: 1,
-		},
-	}
+func TestString(t *testing.T) {
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := Compare(tt.v1, tt.v2); got != tt.want {
-				t.Errorf("Compare() = %v, want %v", got, tt.want)
-			}
-		})
+		s, _ := New(tt.in)
+		if s.String() != tt.reparsed {
+			t.Errorf("String(%q) = %q, want %q", tt.in, s.String(), tt.reparsed)
+		}
+	}
+}
+
+var (
+	v1 = "v1.0.0+metadata-dash"
+	v2 = "v1.0.0+metadata-dash1"
+)
+
+func BenchmarkCompare(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		if CompareString(v1, v2) != 0 {
+			b.Fatalf("bad compare")
+		}
 	}
 }
