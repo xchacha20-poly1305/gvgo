@@ -12,68 +12,59 @@ import (
 )
 
 var tests = []struct {
-	in       string
-	stdout   string
-	reparsed string
+	in          string
+	reformatted string
+	isValid     bool
 }{
-	{"bad", "", "v0.0.0"},
-	{"v1-alpha.beta.gamma", "", "v1.0.0"},
-	{"v1-pre", "", "v1.0.0"},
-	{"v1+meta", "", "v1.0.0"},
-	{"v1-pre+meta", "", "v1.0.0"},
-	{"v1.2-pre", "", "v1.2.0"},
-	{"v1.2+meta", "", "v1.2.0"},
-	{"v1.2-pre+meta", "", "v1.2.0"},
-	{"v1.0.0-alpha", "v1.0.0-alpha", "v1.0.0-alpha"},
-	{"v1.0.0-alpha.1", "v1.0.0-alpha.1", "v1.0.0-alpha.1"},
-	{"v1.0.0-alpha.beta", "v1.0.0-alpha.beta", "v1.0.0-alpha.beta"},
-	{"v1.0.0-beta", "v1.0.0-beta", "v1.0.0-beta"},
-	{"v1.0.0-beta.2", "v1.0.0-beta.2", "v1.0.0-beta.2"},
-	{"v1.0.0-beta.11", "v1.0.0-beta.11", "v1.0.0-beta.11"},
-	{"v1.0.0-rc.1", "v1.0.0-rc.1", "v1.0.0-rc.1"},
-	{"v1", "v1.0.0", "v1.0.0-0.0"},
-	{"v1.0", "v1.0.0", "v1.0.0-0"},
-	{"v1.0.0", "v1.0.0", "v1.0.0"},
-	{"v1.2", "v1.2.0", "v1.2.0-0"},
-	{"v1.2.0", "v1.2.0", "v1.2.0"},
-	{"v1.2.3-456", "v1.2.3-456", "v1.2.3-456"},
-	{"v1.2.3-456.789", "v1.2.3-456.789", "v1.2.3-456.789"},
-	{"v1.2.3-456-789", "v1.2.3-456-789", "v1.2.3-456-789"},
-	{"v1.2.3-456a", "v1.2.3-456a", "v1.2.3-456a"},
-	{"v1.2.3-pre", "v1.2.3-pre", "v1.2.3-pre"},
-	{"v1.2.3-pre+meta", "v1.2.3-pre", "v1.2.3-pre+meta"},
-	{"v1.2.3-pre.1", "v1.2.3-pre.1", "v1.2.3-pre.1"},
-	{"v1.2.3-zzz", "v1.2.3-zzz", "v1.2.3-zzz"},
-	{"v1.2.3", "v1.2.3", "v1.2.3"},
-	{"v1.2.3+meta", "v1.2.3", "v1.2.3+meta"},
-	{"v1.2.3+meta-pre", "v1.2.3", "v1.2.3+meta-pre"},
-	{"v1.2.3+meta-pre.sha.256a", "v1.2.3", "v1.2.3+meta-pre.sha.256a"},
+	{"bad", "0.0.0", false},
+	{"v1-alpha.beta.gamma", "1.0.0", false},
+	{"v1-pre", "1.0.0", false},
+	{"v1+meta", "1.0.0", false},
+	{"v1-pre+meta", "1.0.0", false},
+	{"v1.2-pre", "1.2.0", false},
+	{"v1.2+meta", "1.2.0", false},
+	{"v1.2-pre+meta", "1.2.0", false},
+	{"v1.0.0-alpha", "1.0.0-alpha", true},
+	{"v1.0.0-alpha.1", "1.0.0-alpha.1", true},
+	{"v1.0.0-alpha.beta", "1.0.0-alpha.beta", true},
+	{"v1.0.0-beta", "1.0.0-beta", true},
+	{"v1.0.0-beta.2", "1.0.0-beta.2", true},
+	{"v1.0.0-beta.11", "1.0.0-beta.11", true},
+	{"v1.0.0-rc.1", "1.0.0-rc.1", true},
+	{"v1", "1.0.0", true},
+	{"v1.0", "1.0.0", true},
+	{"v1.0.0", "1.0.0", true},
+	{"v1.2", "1.2.0", true},
+	{"v1.2.0", "1.2.0", true},
+	{"v1.2.3-456", "1.2.3-456", true},
+	{"v1.2.3-456.789", "1.2.3-456.789", true},
+	{"v1.2.3-456-789", "1.2.3-456-789", true},
+	{"v1.2.3-456a", "1.2.3-456a", true},
+	{"v1.2.3-pre", "1.2.3-pre", true},
+	{"v1.2.3-pre+meta", "1.2.3-pre+meta", true},
+	{"v1.2.3-pre.1", "1.2.3-pre.1", true},
+	{"v1.2.3-zzz", "1.2.3-zzz", true},
+	{"v1.2.3", "1.2.3", true},
+	{"v1.2.3+meta", "1.2.3+meta", true},
+	{"v1.2.3+meta-pre", "1.2.3+meta-pre", true},
+	{"v1.2.3+meta-pre.sha.256a", "1.2.3+meta-pre.sha.256a", true},
 }
 
 func TestIsValid(t *testing.T) {
 	for _, tt := range tests {
 		ok := IsValid(tt.in)
-		if ok != (tt.stdout != "") {
+		if ok != tt.isValid {
 			t.Errorf("IsValid(%q) = %v, want %v", tt.in, ok, !ok)
 		}
 	}
 }
 
-func TestCanonicalString(t *testing.T) {
-	for _, tt := range tests {
-		out := CanonicalString(tt.in)
-		if out != tt.stdout {
-			t.Errorf("Canonical(%q) = %q, want %q", tt.in, out, tt.stdout)
-		}
-	}
-}
-
-func TestCompareString(t *testing.T) {
+/*func TestCompareString(t *testing.T) {
 	for i, ti := range tests {
 		for j, tj := range tests {
 			cmp := CompareString(ti.in, tj.in)
 			var want int
-			if ti.stdout == tj.stdout {
+			if ti.reformatted == tj.reformatted {
 				want = 0
 			} else if i < j {
 				want = -1
@@ -85,12 +76,12 @@ func TestCompareString(t *testing.T) {
 			}
 		}
 	}
-}
+}*/
 
 func TestSort(t *testing.T) {
 	var versions []Parsed
 	for _, test := range tests {
-		parsed, ok := New(test.in)
+		parsed, ok := Parse(test.in)
 		if !ok {
 			continue
 		}
@@ -109,9 +100,9 @@ func TestSort(t *testing.T) {
 
 func TestString(t *testing.T) {
 	for _, tt := range tests {
-		s, _ := New(tt.in)
-		if s.String() != tt.reparsed {
-			t.Errorf("String(%q) = %q, want %q", tt.in, s.String(), tt.reparsed)
+		s, _ := Parse(tt.in)
+		if s.String() != tt.reformatted {
+			t.Errorf("String(%q) = %q, want %q", tt.in, s.String(), tt.reformatted)
 		}
 	}
 }

@@ -38,39 +38,8 @@ type Parsed struct {
 
 // IsValid reports whether v is a valid semantic version string.
 func IsValid(v string) bool {
-	_, ok := New(v)
+	_, ok := Parse(v)
 	return ok
-}
-
-// CanonicalString is like Canonical,
-// but returns empty string if v is not a valid semantic version string.
-func CanonicalString(v string) string {
-	p, ok := New(v)
-	if !ok {
-		return ""
-	}
-	if p.Build != "" {
-		return v[:len(v)-len(p.Build)]
-	}
-	if p.Short != "" {
-		return v + p.Short
-	}
-	return v
-}
-
-// Canonical returns the canonical formatting of the semantic version.
-// It fills in any missing .MINOR or .PATCH and discards build metadata.
-// Two semantic versions compare equal only if their canonical formattings
-// are identical strings.
-func (p Parsed) Canonical() string {
-	s := p.String()
-	if p.Build != "" {
-		return s[:len(s)-len(p.Build)]
-	}
-	if p.Short != "" {
-		return s + p.Short
-	}
-	return s
 }
 
 // CompareString is same as Compare.
@@ -78,8 +47,8 @@ func (p Parsed) Canonical() string {
 // An invalid semantic version string is considered less than a valid one.
 // All invalid semantic version strings compare equal to each other.
 func CompareString(v, w string) int {
-	pv, ok1 := New(v)
-	pw, ok2 := New(w)
+	pv, ok1 := Parse(v)
+	pw, ok2 := Parse(w)
 	if !ok1 && !ok2 {
 		return 0
 	}
@@ -112,8 +81,8 @@ func Compare(v, w Parsed) int {
 	return comparePrerelease(v.Prerelease, w.Prerelease)
 }
 
-// New parses a new parsed version.
-func New(v string) (p Parsed, ok bool) {
+// Parse parses a new parsed version, which starts with "v".
+func Parse(v string) (p Parsed, ok bool) {
 	if v == "" || v[0] != 'v' {
 		return
 	}
@@ -124,7 +93,6 @@ func New(v string) (p Parsed, ok bool) {
 	if v == "" {
 		p.Minor = "0"
 		p.Patch = "0"
-		p.Short = ".0.0"
 		return
 	}
 	if v[0] != '.' {
@@ -137,7 +105,6 @@ func New(v string) (p Parsed, ok bool) {
 	}
 	if v == "" {
 		p.Patch = "0"
-		p.Short = ".0"
 		return
 	}
 	if v[0] != '.' {
@@ -344,8 +311,8 @@ func nextIdent(x string) (dx, rest string) {
 	return x[:i], x[i:]
 }
 
+// String returns formated version, which starts without "v".
 func (p Parsed) String() (s string) {
-	s = "v"
 	appendOrDefault := func(v *string) {
 		if *v == "" {
 			s += "0"
